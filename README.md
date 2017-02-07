@@ -11,7 +11,7 @@ This was done on an up to date Xenial host
 ## Installing the build environment
 
     $ sudo -s
-    # apt install devscripts ubuntu-dev-tools sbuild
+    # apt install devscripts ubuntu-dev-tools sbuild lxc
     # sudo adduser <username> sbuild
     # sbuild-update --keygen
     # cat - <<EOM >~/.mk-sbuild.rc 
@@ -74,6 +74,7 @@ The trusty and xenial builds method uses the same commands as listed above.
     # sudo cp -pr /var/lib/schroot/chroots/trusty-updates-amd64/home/ubuntu/* ~/update_gcc/trusty_build
 
 The final directory structure should be :
+
     orig_gcc
     orig_gcc/trusty_build/trusty/python2.7-2.7.6
     orig_gcc/trusty_build/xenial/python2.7-2.7.12
@@ -84,4 +85,61 @@ The final directory structure should be :
     update_gcc/trusty_build/xenial/python2.7-2.7.12
 
 
+# Setting up the virtualenv
 
+The pyperformance module relies on virtualenv to run test performance tests.
+Though there is a *-p* option, it will only instruct pyperformance to use this
+specified interperter to run the pyperformance script, but not to use this
+interpreter to run the performance tests.
+
+So we will create two reference virtualenv which will be used to create specific
+virtualenv for each performance test run. This specific virtualenv will have its
+interpreter replaced by the locally built one. This is to work around a limitation
+where virtualenv expects the interpreter's prefix to be /usr which is not our case.
+
+We alson need to take into account that the *datetime* module is **not** a builtin
+in version 2.7.6 of python.
+
+## Building the reference virtualenv
+
+The 2.7.6 reference virtualenv needs to be built in a *Trusty* environment so
+we will use an LXC container for that :
+
+    # lxc launch ubuntu-daily:t trusty-venv
+    # lxc list
+    # ssh ubuntu@192.168.100.142
+
+    In a trusty lxc container :
+
+    $ sudo -s
+    # apt install python-pip python-virtualenv python-dev
+    # python -mpip install performance
+    # pyperformance run -p=python2 --bench=2to3 --debug -o /tmp/template.json
+    # mv venv/cpython* venv/venv_template_276
+
+On the Xenial host:
+
+    # rsync -av ubuntu@{xenial container}:venv .
+    # pyperformance run -p=python2 --bench=2to3 --debug -o /tmp/template.json
+    # mv venv/cpython* venv/venv_template_2712
+
+The virtualenv templates are now ready to be used.
+
+# Prepare the environments
+
+Simply run the script *prepare_venv* included in this repository. Here is what it does :
+
+1. Cleanup previous virtual environment
+2. Copy the appropriate template into a specific venv
+3. If version 2.7.6, copy the datetime.so module
+4. Fix the VIRTUAL_ENV path to the specific venv name
+5. Copy the locally built interpreter in the venv
+6. Replace the python2.7 symlink
+
+# Run the tests
+
+The script *run_tests* will run all the tests sequentially. You can use the
+*--test* switch to verify that your environment is correctly setup.
+
+    # mkdir perf
+    # ./run_tests
